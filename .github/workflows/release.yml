@@ -132,14 +132,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update description on Docker Hub
-        uses: peter-evans/dockerhub-description@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ vars.DOCKERHUB_REPO }}/${{ vars.DOCKERHUB_IMG }}
-
       - name: Create GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create "${{ needs.release.outputs.version }}" --generate-notes
+
+      # peter-evans/dockerhub-description uses the legacy Hub API
+      # (/v2/users/login + /v2/repositories/...), which rejects organization
+      # access tokens with 401/403 regardless of scopes. The namespaces
+      # endpoint accepts the org token as a Bearer token directly.
+      # Runs after the GitHub release so a description failure can't block it.
+      - name: Update description on Docker Hub
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_REPO: ${{ vars.DOCKERHUB_REPO }}
+          DOCKERHUB_IMG: ${{ vars.DOCKERHUB_IMG }}
+        run: |
+          jq -n --rawfile readme README.md '{full_description: $readme}' \
+            | curl -sSf -X PATCH \
+                -H "Authorization: Bearer ${DOCKERHUB_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d @- \
+                -o /dev/null \
+                "https://hub.docker.com/v2/namespaces/${DOCKERHUB_REPO}/repositories/${DOCKERHUB_IMG}"
