@@ -180,8 +180,9 @@ RUN if [ "$MODEL_TYPE" = "z-image-turbo" ]; then \
     fi
 
 RUN if [ "$MODEL_TYPE" = "fluxed-up" ]; then \
-      wget -q -O models/checkpoints/fluxedUp.safetensors \
-      "https://huggingface.co/HurdyThirty/FluxedUp/resolve/main/fluxedUpFluxNSFW_40DevFp8.safetensors"; \
+      wget -O models/checkpoints/fluxedUp.safetensors "https://huggingface.co/HurdyThirty/FluxedUp/resolve/main/fluxedUpFluxNSFW_40DevFp8.safetensors" && \
+      wget -O models/clip/clip_l.safetensors https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors && \
+      wget -O models/clip/t5xxl_fp8_e4m3fn.safetensors https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors; \
     fi
 
 # Stage 3: Final image
