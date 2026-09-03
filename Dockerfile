@@ -23,11 +23,8 @@ ENV CMAKE_BUILD_PARALLEL_LEVEL=8
 RUN apt-get update && apt-get install -y \
     python3.12 \
     python3.12-venv \
-    python3.12-dev \
-    build-essential \
     git \
     wget \
-    unzip \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
@@ -53,9 +50,7 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # Install comfy-cli + dependencies needed by it to install ComfyUI
 # comfy-cli is pinned: its install/torch-index behavior decides what lands in
 # the workspace venv, so an unpinned version makes builds non-reproducible.
-# PULID: cython and numpy must exist in THIS venv before insightface is
-# installed below with --no-build-isolation.
-RUN uv pip install comfy-cli==1.13.0 pip setuptools wheel cython "numpy<2.0.0"
+RUN uv pip install comfy-cli==1.13.0 pip setuptools wheel
 
 # Install ComfyUI
 RUN if [ -n "${CUDA_VERSION_FOR_COMFY}" ]; then \
@@ -63,11 +58,6 @@ RUN if [ -n "${CUDA_VERSION_FOR_COMFY}" ]; then \
     else \
       /usr/bin/yes | comfy --workspace /comfyui install --version "${COMFYUI_VERSION}" --nvidia; \
     fi
-
-# PULID: clone before the dependency step so the custom_nodes/*/requirements.txt
-# loop below picks up its requirements too.
-RUN git clone https://github.com/lldacing/ComfyUI_PuLID_Flux_ll.git \
-      /comfyui/custom_nodes/ComfyUI_PuLID_Flux_ll
 
 # Upgrade PyTorch if needed (for newer CUDA versions)
 RUN if [ "$ENABLE_PYTORCH_UPGRADE" = "true" ]; then \
@@ -102,10 +92,7 @@ RUN uv pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 \
     && for r in /comfyui/custom_nodes/*/requirements.txt; do \
          [ -f "$r" ] && uv pip install -r "$r" || true; \
        done \
-    && uv pip install onnxruntime-gpu open-clip-torch facexlib \
-    && uv pip install insightface --no-build-isolation \
-    && uv pip install facenet-pytorch --no-deps \
-    && uv pip install "transformers>=4.50.3,<5" "huggingface-hub<1.0" "numpy<2.0.0"
+    && uv pip install "transformers>=4.50.3,<5" "huggingface-hub<1.0"
 
 # Build-time smoke test: actually start ComfyUI (imports the full node graph) so
 # a startup-breaking dependency is caught HERE, at build time, instead of as a
@@ -154,25 +141,7 @@ ARG MODEL_TYPE=fluxed-up
 WORKDIR /comfyui
 
 # Create necessary directories upfront
-RUN mkdir -p models/checkpoints models/vae models/unet models/clip models/text_encoders models/diffusion_models models/model_patches \
-             models/pulid \
-             models/insightface/models/antelopev2
-
-# PULID: adapter weights, EVA-CLIP, antelopev2. Unconditional — needed for any
-# MODEL_TYPE. NOTE: nothing here writes to /root/.cache. RunPod's builder owns
-# that path (see the "Creating cache directory" build step) and a Dockerfile
-# that writes into it or COPY --from=s out of it fails the build before any
-# instruction runs. facexlib fetches its detector at first use instead.
-RUN wget -q -O models/pulid/PuLID-FLUX-v0.9.1.safetensors \
-      https://huggingface.co/guozinan/PuLID/resolve/main/PuLID-FLUX-v0.9.1.safetensors
-
-RUN wget -q -O models/clip/EVA02_CLIP_L_336_psz14_s6B.pt \
-      https://huggingface.co/QuanSun/EVA-CLIP/resolve/main/EVA02_CLIP_L_336_psz14_s6B.pt
-
-RUN wget -q -O /tmp/antelopev2.zip \
-      https://huggingface.co/MONA-LISA/antelopev2/resolve/main/antelopev2.zip \
-    && unzip -q /tmp/antelopev2.zip -d models/insightface/models/antelopev2 \
-    && rm /tmp/antelopev2.zip
+RUN mkdir -p models/checkpoints models/vae models/unet models/clip models/text_encoders models/diffusion_models models/model_patches
 
 # Download checkpoints/vae/unet/clip models to include in image based on model type
 RUN if [ "$MODEL_TYPE" = "sdxl" ]; then \
@@ -221,7 +190,3 @@ FROM base AS final
 
 # Copy models from stage 2 to the final image
 COPY --from=downloader /comfyui/models /comfyui/models
-
-# PULID: insightface resolves models from ~/.insightface/models at runtime
-RUN mkdir -p /root/.insightface \
-    && ln -s /comfyui/models/insightface/models /root/.insightface/models
