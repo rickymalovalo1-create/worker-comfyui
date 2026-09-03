@@ -13,7 +13,7 @@ import uuid
 import tempfile
 import socket
 import traceback
-import logging
+import builtins
 
 from network_volume import (
     is_network_volume_debug_enabled,
@@ -22,9 +22,20 @@ from network_volume import (
 
 # ---------------------------------------------------------------------------
 # Logging setup
+#
+# Shadow the builtin print() so every print in this module is gated behind
+# WORKER_VERBOSE, without having to touch ~60 individual call sites. Python
+# resolves names in module globals before builtins, so all prints below --
+# including multi-line ones -- route through this function. Set
+# WORKER_VERBOSE=true on the endpoint to get the detail back; no rebuild needed.
 # ---------------------------------------------------------------------------
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+VERBOSE = os.environ.get("WORKER_VERBOSE", "false").lower() == "true"
+
+
+def print(*args, **kwargs):
+    if VERBOSE:
+        builtins.print(*args, **kwargs)
+
 
 # Time to wait between API check attempts in milliseconds
 COMFY_API_AVAILABLE_INTERVAL_MS = int(
@@ -438,10 +449,13 @@ def queue_workflow(workflow, client_id, comfy_org_api_key=None):
 
     # Handle validation errors with detailed information
     if response.status_code == 400:
-        print(f"worker-comfyui - ComfyUI returned 400. Response body: {response.text}")
+        # NOTE: do NOT log response.text -- ComfyUI's 400 body echoes the
+        # submitted graph back, prompt text included. The detail still reaches
+        # the caller via the ValueError raised below, which travels in the job
+        # response rather than the console log stream.
+        print(f"worker-comfyui - ComfyUI returned 400 ({len(response.text)} bytes)")
         try:
             error_data = response.json()
-            print(f"worker-comfyui - Parsed error data: {error_data}")
 
             # Try to extract meaningful error information
             error_message = "Workflow validation failed"
