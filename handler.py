@@ -13,29 +13,26 @@ import uuid
 import tempfile
 import socket
 import traceback
-import builtins
+import logging
 
 from network_volume import (
     is_network_volume_debug_enabled,
     run_network_volume_diagnostics,
 )
 
-# ---------------------------------------------------------------------------
-# Logging setup
-#
-# Shadow the builtin print() so every print in this module is gated behind
-# WORKER_VERBOSE, without having to touch ~60 individual call sites. Python
-# resolves names in module globals before builtins, so all prints below --
-# including multi-line ones -- route through this function. Set
-# WORKER_VERBOSE=true on the endpoint to get the detail back; no rebuild needed.
-# ---------------------------------------------------------------------------
-VERBOSE = os.environ.get("WORKER_VERBOSE", "false").lower() == "true"
+import builtins
 
+VERBOSE = os.environ.get("WORKER_VERBOSE", "false").lower() == "true"
 
 def print(*args, **kwargs):
     if VERBOSE:
         builtins.print(*args, **kwargs)
 
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Time to wait between API check attempts in milliseconds
 COMFY_API_AVAILABLE_INTERVAL_MS = int(
@@ -449,10 +446,6 @@ def queue_workflow(workflow, client_id, comfy_org_api_key=None):
 
     # Handle validation errors with detailed information
     if response.status_code == 400:
-        # NOTE: do NOT log response.text -- ComfyUI's 400 body echoes the
-        # submitted graph back, prompt text included. The detail still reaches
-        # the caller via the ValueError raised below, which travels in the job
-        # response rather than the console log stream.
         print(f"worker-comfyui - ComfyUI returned 400 ({len(response.text)} bytes)")
         try:
             error_data = response.json()
